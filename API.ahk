@@ -2708,7 +2708,7 @@ updateObjects() {
 	return true
 }
 
-_getChatline(dwIndex) {
+getChatline(dwIndex) {
 	if (dwIndex < 0 || dwIndex > 99 || !checkHandles())
 		return false
 
