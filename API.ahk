@@ -242,6 +242,18 @@ __ansiToUnicode(sString, nLen = 0) {
 	return wString
 }
 
+__unicodeToAnsi(wString, nLen = 0) {
+	pString := wString + 1 > 65536 ? wString : &wString
+
+	if (!nLen)
+		nLen := DllCall("WideCharToMultiByte", "UInt", 0, "UInt", 0, "UInt", pString, "Int",  -1, "UInt", 0, "Int",  0, "UInt", 0, "UInt", 0)
+
+	VarSetCapacity(sString, nLen)
+	DllCall("WideCharToMultiByte", "UInt", 0, "UInt", 0, "UInt", pString, "Int",  -1, "Str",  sString, "Int",  nLen, "UInt", 0, "UInt", 0)
+
+	return sString
+}
+
 __NOP(hProcess, dwAddress, dwLen) {
 	if (dwLen < 1 || !hProcess || !dwAddress)
 		return false
