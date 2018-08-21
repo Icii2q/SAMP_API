@@ -340,6 +340,16 @@ isFloat(arg) {
 	return false
 }
 
+IntToHex(value, prefix := true) {
+	CurrentFormat := A_FormatInteger
+	SetFormat, Integer, hex
+	value += 0
+	SetFormat, Integer, %CurrentFormat%
+	Int2 := SubStr(value, 3)
+	StringUpper value, Int2
+	return (prefix ? "0x" : "") . value
+}
+
 evaluateString(string) {
 	static sc := ComObjCreate("ScriptControl")
 	sc.Language := "JScript"
@@ -1008,7 +1018,7 @@ pressDialogButton(button) {
 }
 
 blockDialog() {
-	return checkHandles() && NOP(hGTA, dwSAMP + 0x6C014, 7)	
+	return checkHandles() && __NOP(hGTA, dwSAMP + 0x6C014, 7)	
 }
 
 unblockDialog() {
@@ -1447,7 +1457,7 @@ setWanteds(wanteds) {
 }
 
 checkSendCMDNOP() {
-	return checkHandles() && NOP(hGTA, dwSAMP + 0x65DF8, 5) && NOP(hGTA, dwSAMP + 0x65E45, 5)
+	return checkHandles() && __NOP(hGTA, dwSAMP + 0x65DF8, 5) && __NOP(hGTA, dwSAMP + 0x65E45, 5)
 }
 
 patchSendSay(toggle := true) {
