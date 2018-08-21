@@ -3,6 +3,8 @@
 ; # --------------------------------------------------------------------------------------------------- #
 ; #######################################################################################################
 
+SetTitleMatchMode, 3
+
 global datatypes := {"Int64" : 8, "Double" : 8, "UInt" : 4, "Int" : 4, "Float" : 4, "Ptr" : 4, "UPtr" : 4, "UShort" : 2, "Short" : 2, "Char" : 1, "UChar" : 1, "Byte" : 1}
 
 getPID(windowName) {
@@ -80,51 +82,6 @@ __DWORD(hProcess, dwAddress, offsets) {
 	}
 
 	return dwAddress
-}
-
-readDWORD(hProcess, dwAddress) {
-	if(!hProcess) {
-		ErrorLevel := ERROR_INVALID_HANDLE
-		return 0
-	}
-	
-	VarSetCapacity(dwRead, 4)    ; DWORD = 4
-	dwRet := DllCall(    "ReadProcessMemory"
-						, "UInt",  hProcess
-						, "UInt",  dwAddress
-						, "Str",   dwRead
-						, "UInt",  4
-						, "UInt*", 0)
-	if(dwRet == 0) {
-		ErrorLevel := ERROR_READ_MEMORY
-		return 0
-	}
-	
-	ErrorLevel := ERROR_OK
-	return NumGet(dwRead, 0, "UInt")
-}
-
-
-readMem(hProcess, dwAddress, dwLen=4, type="UInt") {
-	if(!hProcess) {
-		ErrorLevel := ERROR_INVALID_HANDLE
-		return 0
-	}
-	
-	VarSetCapacity(dwRead, dwLen)
-	dwRet := DllCall(    "ReadProcessMemory"
-						, "UInt",  hProcess
-						, "UInt",  dwAddress
-						, "Str",   dwRead
-						, "UInt",  dwLen
-						, "UInt*", 0)
-	if(dwRet == 0) {
-		ErrorLevel := ERROR_READ_MEMORY
-		return 0
-	}
-	
-	ErrorLevel := ERROR_OK
-	return NumGet(dwRead, 0, type)
 }
 
 __READMEM(hProcess, dwAddress, oOffsets, sDatatype = "Int") {
@@ -285,42 +242,7 @@ __ansiToUnicode(sString, nLen = 0) {
 	return wString
 }
 
-__ansiToGTA(sString) {
-	VarSetCapacity(newString, (len := StrLen(sString)))
-	Loop, % len
-	{
-		char := NumGet(sString, A_Index - 1, "UChar")
-		msgbox % char
-		NumPut((char == 252 ? 168 : char), &newString, A_Index - 1, "UChar")
-		StringTrimLeft, sString, sString, 1
-	}
-
-	return newString
-}
-
-__unicodeToAnsi(wString, nLen = 0) {
-	pString := wString + 1 > 65536 ? wString : &wString
-
-	if (!nLen)
-		nLen := DllCall("WideCharToMultiByte", "UInt", 0, "UInt", 0, "UInt", pString, "Int",  -1, "UInt", 0, "Int",  0, "UInt", 0, "UInt", 0)
-
-	VarSetCapacity(sString, nLen)
-	DllCall("WideCharToMultiByte", "UInt", 0, "UInt", 0, "UInt", pString, "Int",  -1, "Str",  sString, "Int",  nLen, "UInt", 0, "UInt", 0)
-
-	return sString
-}
-
-IntToHex(value, prefix := true) {
-	CurrentFormat := A_FormatInteger
-	SetFormat, Integer, hex
-	value += 0
-	SetFormat, Integer, %CurrentFormat%
-	Int2 := SubStr(value, 3)
-	StringUpper value, Int2
-	return (prefix ? "0x" : "") . value
-}
-
-NOP(hProcess, dwAddress, dwLen) {
+__NOP(hProcess, dwAddress, dwLen) {
 	if (dwLen < 1 || !hProcess || !dwAddress)
 		return false
 
@@ -350,48 +272,6 @@ __READBYTE(hProcess, dwAddress) {
 	VarSetCapacity(value, 1, 0)
 	DllCall("ReadProcessMemory", "UInt", hProcess, "UInt", dwAddress, "Str", value, "UInt", 1, "UInt *", 0)
 	return NumGet(value, 0, "Byte")
-}
-
-increaseValue(dwAddress, value, sDatatype := "UInt") {
-	return !checkHandles() ? false : __WRITEMEM(hGTA, dwAddress, [0x0], __READMEM(hGTA, dwAddress, [0x0], sDatatype) + value, sDatatype)
-}
-
-isInteger(arg) {
-	if arg is integer
-		return true
-
-	return false
-}
-
-isFloat(arg) {
-	if arg is float
-		return true
-
-	return false
-}
-
-fileCountLines(path) {
-	FileRead, text, % path
-	StringReplace, text, text, `r, `n, All UseErrorLevel
-	return ErrorLevel + 1
-}
-
-evaluateString(string) {
-	static sc := ComObjCreate("ScriptControl")
-	sc.Language := "JScript"
-	string := "a = " string ";"
-	try {
-		sc.ExecuteStatement(string)
-		new := sc.Eval("a")
-	}
-	catch e
-		return "ERROR"
-		
-	return new
-}
-
-getByteSize(number) {
-	return number <= 0xFF ? 1 : number <= 0xFFFF ? 2 : 4
 }
 
 __INJECT(hProcess, aInstructions) {
@@ -425,18 +305,49 @@ __INJECT(hProcess, aInstructions) {
 	}
 
 	__WRITERAW(hGTA, pInjectFunc, &injectData, dwLen)
-
 	hThread := createRemoteThread(hGTA, 0, 0, pInjectFunc, 0, 0, 0)
 	if (ErrorLevel)
 		return false
 
 	waitForSingleObject(hThread, 0xFFFFFFFF)
 	closeProcess(hThread)
-
 	return ErrorLevel ? false : __READMEM(hGTA, pMemory, [0x0], "Int")
 }
 
+isInteger(arg) {
+	if arg is integer
+		return true
+
+	return false
+}
+
+isFloat(arg) {
+	if arg is float
+		return true
+
+	return false
+}
+
+evaluateString(string) {
+	static sc := ComObjCreate("ScriptControl")
+	sc.Language := "JScript"
+	string := "a = " string ";"
+	try {
+		sc.ExecuteStatement(string)
+		new := sc.Eval("a")
+	}
+	catch e
+		return "ERROR"
+		
+	return new
+}
+
+getByteSize(number) {
+	return number <= 0xFF ? 1 : number <= 0xFFFF ? 2 : 4
+}
+
 global SERVER_SPEED_KOEFF := 1.425
+global MATH_PI := 3.141592653589793
 
 global DIALOG_STYLE_MSGBOX			:= 0
 global DIALOG_STYLE_INPUT 			:= 1
@@ -946,8 +857,8 @@ global SAMP_POOLS							:= 0x3CD
 	global SAMP_POOL_PLAYER						:= 0x18
 		global SAMP_REMOTEPLAYERS					:= 0x2E
 		global SAMP_LOCALPLAYER						:= 0x22
-	global SAMP_POOL_PICKUP							:= 0x20
 	global SAMP_POOL_VEHICLE						:= 0x1C
+	global SAMP_POOL_PICKUP							:= 0x20
 
 global FUNC_SAMP_SEND_CMD					:= 0x65C60
 global FUNC_SAMP_SEND_SAY					:= 0x57F0
@@ -966,6 +877,7 @@ global playerTick							:= 0
 global oPlayers								:= ""
 global vehicleTick							:= 0
 global oVehicles							:= ""
+global scoreboardTick 						:= 0
 
 global hGTA									:= 0x0
 global dwGTAPID								:= 0x0
@@ -1068,6 +980,10 @@ getDialogSelectedUI() {
 	return 0
 }
 
+showTextMessage(showText, showTime := 3000, unknown1 := 1, unknown2 := 1) {
+	return !checkHandles() ? false : __WRITESTRING(hGTA, pMemory, [5000], showText) && __CALL(hGTA, 0x69F1E0, [["i", pMemory + 5000], ["i", showTime], ["i", 1], ["i", 1]])
+}
+
 showDialog(style, caption, text, button1, button2 := "", id := 1) {
 	if (id < 0 || id > 32767 || style < 0 || style > 5 || StrLen(caption) > 64 || StrLen(text) > 4095 || StrLen(button1) > 10 || StrLen(button2) > 10 || !checkHandles())
 		return false
@@ -1085,11 +1001,6 @@ blockDialog() {
 
 unblockDialog() {
 	return checkHandles() && __WRITEBYTES(hGTA, dwSAMP + 0x6C014, [0xC7, 0x46, 0x28, 0x1, 0x0, 0x0, 0x0])
-}
-
-setVehicleLightStatus(frontLeft, frontRight, rearBoth) {
-	return !checkHandles() || !isPlayerDriver() || getVehicleType() != 1 ? false : __WRITEMEM(hGTA, GTA_VEHICLE_PTR, [0x0, 0x5B0]
-		, (~frontLeft & 1) + ((~frontRight & 1) << 2) + ((~rearBoth & 1) << 6), "UChar")
 }
 
 isChatOpen() {
@@ -1112,57 +1023,8 @@ addChatMessage(text, color := 0xFFFFFFFF, timestamp := true) {
 	return checkHandles() && __CALL(hGTA, dwSAMP + 0x64010, [["i", __DWORD(hGTA, dwSAMP, [SAMP_CHAT_INFO_PTR])], ["i", timestamp ? 4 : 2], ["s", text], ["i", 0], ["i", color], ["i", 0]], false, true)
 }
 
-addChatMessages(text, color := 0xFFFFFFFF, timestamp := true, count := 1) {
-	if (StrLen(text) > 128 || !checkHandles())
-		return false
-
-	dwFunc := dwSAMP + 0x64010
-	dwLen := 46
-	VarSetCapacity(injectData, dwLen, 0)
-	NumPut(0xB9, injectData, 0, "UChar") ; mov ecx, count
-	NumPut(count, injectData, 1, "UInt")
-
-	NumPut(0x51, injectData, 5, "UChar") ; push ecx
-
-	; // actual function call
-	NumPut(0x68, injectData, 6, "UChar") ; push
-	NumPut(0, injectData, 7, "UInt") ; push
-	NumPut(0x68, injectData, 11, "UChar") ; push
-	NumPut(color, injectData, 12, "UInt") ; push
-	NumPut(0x68, injectData, 16, "UChar") ; push
-	NumPut(0, injectData, 17, "UInt") ; push
-
-	__WRITESTRING(hGTA, pMemory, [0x0], text)
-	NumPut(0x68, injectData, 21, "UChar") ; push
-	NumPut(pMemory, injectData, 22, "UInt") ; push
-
-	NumPut(0x68, injectData, 26, "UChar") ; push
-	NumPut(timestamp ? 4 : 2, injectData, 27, "UInt") ; push
-
-	NumPut(0xB9, injectData, 31, "UChar") ; mov ecx, pointer (thiscall)
-	NumPut(__DWORD(hGTA, dwSAMP, [SAMP_CHAT_INFO_PTR]), injectData, 32, "UInt")
-
-	NumPut(0xE8, injectData, 36, "UChar") ; call
-	offset := dwFunc - (pInjectFunc + 41)
-	NumPut(offset, injectData, 37, "Int")
-
-	NumPut(0x59, injectData, 41, "UChar") ; pop ecx
-	NumPut(0x49, injectData, 42, "UChar") ; dec ecx
-	NumPut(0x75, injectData, 43, "UChar") ; JNZ SHORT
-	NumPut(0xD8, injectData, 44, "UChar") ; JNZ SHORT
-
-	NumPut(0xC3, injectData, 45, "UChar")
-	__WRITERAW(hGTA, pInjectFunc, &injectData, dwLen)
-	if (ErrorLevel)
-		return false
-
-	hThread := createRemoteThread(hGTA, 0, 0, pInjectFunc, 0, 0, 0)
-	if (ErrorLevel)
-		return false
-
-	waitForSingleObject(hThread, 0xFFFFFFFF)
-	closeProcess(hThread)
-	return true
+writeToChatlog(text) {
+	return checkHandles() && __CALL(hGTA, dwSAMP + 0x63C00, [["i", __DWORD(hGTA, dwSAMP, [SAMP_CHAT_INFO_PTR])], ["i", 4], ["s", text], ["i", 0]], false, true) 
 }
 
 getPageSize() {
@@ -1182,10 +1044,7 @@ getPlayerAnim() {
 }
 
 getPing() {
-	if (!checkHandles() || !__CALL(hGTA, dwSAMP + 0x8A10, [["i", __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR])]], false, true))
-		return 0
-
-	return  __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_PLAYER, 0x26])
+	return !checkHandles() ? "" :  __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_PLAYER, 0x26])
 }
 
 getScore() {
@@ -1252,6 +1111,10 @@ getVehicleIDsByNumberPlate(numberPlate) {
 	return vehicles
 }
 
+getVehiclePointer(vehicleID) {
+	return !checkHandles() || vehicleID < 1 || vehicleID > SAMP_MAX_VEHICLES ? "" : __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_VEHICLE, vehicleID * 4 + 0x4FB4])
+}
+
 getVehiclePosition(vehicleID) {
 	return !checkHandles() || vehicleID < 1 || vehicleID > SAMP_MAX_VEHICLES ? "" : [__READMEM(hGTA, (dwAddress := __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_VEHICLE, vehicleID * 4 + 0x1134, 0x40, 0x14])), [0x30], "Float"), __READMEM(hGTA, dwAddress, [0x34], "Float"), __READMEM(hGTA, dwAddress, [0x38], "Float")]
 }
@@ -1267,8 +1130,12 @@ getVehicleID() {
 	return __READMEM(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_PLAYER, SAMP_LOCALPLAYER, isPlayerDriver() ? 0xAA : 0x5C], "UShort")
 }
 
+updateScoreboardData() {
+	return !checkHandles() ? false : (A_TickCount - scoreboardTick > 1000 ? __CALL(hGTA, dwSAMP + 0x8A10, [["i", __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR])]], false, true) && scoreboardTick := A_TickCount : true)
+}
+
 getPlayerScore(playerID) {
-	return playerID < 0 || playerID >= SAMP_MAX_PLAYERS || !checkHandles() ? "" : __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_PLAYER, SAMP_REMOTEPLAYERS + playerID * 4, 0x24])
+	return playerID < 0 || playerID >= SAMP_MAX_PLAYERS || !updateScoreboardData() ? "" : __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_PLAYER, SAMP_REMOTEPLAYERS + playerID * 4, 0x24])
 }
 
 isPlayerUsingCell(playerID) {
@@ -1303,6 +1170,10 @@ getPlayerVehicleID(playerID) {
 	return playerID < 0 || playerID >= SAMP_MAX_PLAYERS || !checkHandles() ? "" : __READMEM(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_PLAYER, SAMP_REMOTEPLAYERS + playerID * 4, 0x0, 0xAD], "UShort")
 }
 
+getPlayerAnimationID(playerID) {
+	return playerID < 0 || playerID >= SAMP_MAX_PLAYERS || !checkHandles() ? "" : __READMEM(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_PLAYER, SAMP_REMOTEPLAYERS + playerID * 4, 0x0, 0x108], "UShort")
+}
+
 getPlayerVehiclePos(playerID) {
 	return playerID < 0 || playerID >= SAMP_MAX_PLAYERS || !checkHandles() ? "" : [__READMEM(hGTA, (dwAddress := __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_PLAYER, SAMP_REMOTEPLAYERS + playerID * 4, 0x0])), [0x93], "Float"), __READMEM(hGTA, dwAddress, [0x97], "Float"), __READMEM(hGTA, dwAddress, [0x9B], "Float")]
 }
@@ -1320,7 +1191,7 @@ getPlayerSeatID(playerID) {
 }
 
 getPlayerPing(playerID) {
-	return playerID < 0 || playerID >= SAMP_MAX_PLAYERS || !checkHandles() ? "" : __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_PLAYER, SAMP_REMOTEPLAYERS + playerID * 4, 0x28])
+	return playerID < 0 || playerID >= SAMP_MAX_PLAYERS || !updateScoreboardData() ? "" : __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_PLAYER, SAMP_REMOTEPLAYERS + playerID * 4, 0x28])
 }
 
 isNPC(playerID) {
@@ -1342,10 +1213,6 @@ getPlayerAmmo(playerID, slot) {
 
 getPlayerColor(playerID) {
 	return !checkHandles() ? -1 : (((color := __DWORD(hGTA, dwSAMP, [0x216378 + playerID * 4])) >> 8) & 0xFF) + ((color >> 16) & 0xFF) * 0x100 + ((color >> 24) & 0xFF) * 0x10000
-}
-
-getPlayerColor1(playerID) {
-	return !checkHandles() ? "" : __DWORD(hGTA, dwSAMP, [0x103078 + playerID * 4])
 }
 
 getChatBubbleText(playerID) {
@@ -1382,6 +1249,18 @@ getPlayerName(playerID) {
 		return __READSTRING(hGTA, dwAddress, [0xC, 0x0], 25)
 
 	return __READSTRING(hGTA, dwAddress, [0xC], 16)
+}
+
+isValidVehicle(dwVehicle) {
+	if (!updateVehicles())
+		return false
+
+	for i, o in oVehicles {
+		if (o.PTR = dwVehicle)
+			return true
+	}
+
+	return false
 }
 
 ; // ############################## LocalPlayer Functions ##############################
@@ -1430,6 +1309,14 @@ toggleCheckpoint(toggle := true) {
 	return checkHandles() && __WRITEMEM(hGTA, dwSAMP, [SAMP_MISC_INFO_PTR, 0x24], toggle ? 1 : 0 ,"UChar")
 }
 
+togglePlaneTrail(toggle := true) {
+	return checkHandles() && __WRITEMEM(hGTA, GTA_VEHICLE_PTR, [0xA00], toggle ? true : false, "UChar")
+}
+
+toggleLandingGear(toggle := true) {
+	return checkHandles() && __WRITEMEM(hGTA, GTA_VEHICLE_PTR, [0x0, 0x98], toggle ? 0.0012 : 0.004, "Float")
+}
+
 getCheckpointSize() {
 	return !checkHandles() ? false : __READMEM(hGTA, dwSAMP, [SAMP_MISC_INFO_PTR, 0x18], "Float")
 }
@@ -1460,15 +1347,17 @@ setCheckpoint(fX, fY, fZ, fSize := 3.0) {
 	if (!checkHandles())
 		return false
 
-	VarSetCapacity(buf, 16, 0)
-	NumPut(fX, buf, 0, "Float")
-	NumPut(fY, buf, 4, "Float")
-	NumPut(fZ, buf, 8, "Float")
-	NumPut(fSize, buf, 12, "Float")
-	if (!__WRITERAW(hGTA, pMemory + 20, &buf, 16))
+	VarSetCapacity(buf, (len := 24), 0)
+	NumPut(pMemory + 8, buf, 0, "UInt")
+	NumPut(16 * 8, buf, 4, "Int")
+	NumPut(fX, buf, 8, "Float")
+	NumPut(fY, buf, 12, "Float")
+	NumPut(fZ, buf, 16, "Float")
+	NumPut(fSize, buf, 20, "Float")
+	if (!__WRITERAW(hGTA, pMemory, &buf, len))
 		return false
 
-	return __CALL(hGTA, dwSAMP + 0x9D340, [["i", __DWORD(hGTA, dwSAMP, [SAMP_MISC_INFO_PTR])], ["i", pMemory + 20], ["i", pMemory + 32]], false, true) && toggleCheckpoint()
+	return __CALL(hGTA, dwSAMP + 0xD220, [["i", pMemory]])
 }
 
 isRaceCheckpointSet() {
@@ -1537,6 +1426,14 @@ unpatchWanteds() {
 	return !checkHandles() ? false : __WRITEBYTES(hGTA, dwSAMP + 0x9C9C0, [0x8A, 0x44, 0x24,04])
 }
 
+getWanteds() {
+	return !checkHandles() ? -1 : __DWORD(hGTA, 0x58DB60, [0x0])
+}
+
+setWanteds(wanteds) {
+	return !checkHandles() ? false : __WRITEMEM(hGTA, 0x58DB60, [0x0], wanteds, "UInt")
+}
+
 checkSendCMDNOP() {
 	return checkHandles() && NOP(hGTA, dwSAMP + 0x65DF8, 5) && NOP(hGTA, dwSAMP + 0x65E45, 5)
 }
@@ -1551,6 +1448,15 @@ unpatchSendCMD() {
 
 getChatRenderMode() {
 	return !checkHandles() ? -1 : __READMEM(hGTA, [SAMP_CHAT_INFO_PTR, 0x8], "UChar")
+}
+
+renderChat() {
+	if (!checkHandles())
+		return false
+
+	Sleep, 40
+	__WRITEMEM(hGTA, dwSAMP, [SAMP_CHAT_INFO_PTR, 0x63DA], 1, "UInt")
+	return true
 }
 
 toggleScoreboard(toggle) {
@@ -1584,7 +1490,7 @@ isLineOfSightClear(fX1, fY1, fZ1, fX2, fY2, fZ2) {
 }
 
 takeScreenshot() {
-	return checkHandles() && __WRITEMEM(hGTA, dwSAMP, [0x119CBC], "UChar")
+	return checkHandles() && __WRITEMEM(hGTA, dwSAMP, [0x119CBC], 1, "UChar")
 }
 
 getPlayerFightingStyle() {
@@ -1615,14 +1521,14 @@ cameraRestoreWithJumpcut() {
 	return checkHandles() && __CALL(hGTA, 0x50BAB0, [["i", 0xB6F028]], false, true)
 }
 
+atan2(x, y) {
+   return DllCall("msvcrt\atan2", "Double", y, "Double", x, "CDECL Double")
+}
+
 calcAngle(xActor, yActor, xPoint, yPoint) {
 	fX := xActor - xPoint
 	fY := yActor - yPoint
 	return atan2(fX, fY)
-}
-
-atan2(x, y) {
-	return DllCall("msvcrt\atan2", "Double", y, "Double", x, "CDECL Double")
 }
 
 getPlayerZAngle() {
@@ -1630,7 +1536,7 @@ getPlayerZAngle() {
 }
 
 setCameraPosX(fAngle) {
-	return checkHandles() && __WRITEMEM(hGTA, 0xB6F258, [0x0], "Float")
+	return checkHandles() && __WRITEMEM(hGTA, 0xB6F258, [0x0], fAngle, "Float")
 }
 
 isPlayerFrozen() {
@@ -1660,16 +1566,6 @@ getWeaponName(weaponID) {
 
 getPlayerPed(playerID) {
 	return playerID < 0 || playerID >= SAMP_MAX_PLAYERS || !checkHandles() ? 0x0 : __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_PLAYER, SAMP_REMOTEPLAYERS + playerID * 4, 0x0, 0x0, 0x2A4])
-}
-
-getIFPAnimationName1(playerID) {
-	if (!(ped := getPlayerPed(playerID)))
-		return ""
-
-	if (!(dwAddress := isTaskActive(ped, 401)))
-		dwAddress := __DWORD(hGTA, ped, [0x47C])
-
-	return __READSTRING(hGTA, dwAddress, [0x28], 10) . " , " . __READSTRING(hGTA, dwAddress, [0x10], 20)
 }
 
 getIFPAnimationName(playerID) {
@@ -1793,6 +1689,19 @@ getDrunkLevel() {
 	return !checkHandles() ? "" : __DWORD(hGTA, dwSAMP, [SAMP_MISC_INFO_PTR, 0x8, 0x2C9])
 }
 
+getFPS() {
+	if (!checkHandles())
+		return 0
+
+	static timev := A_TickCount
+	static val := __DWORD(hGTA, 0xB7CB4C, [0x0])
+	temp := __DWORD(hGTA, 0xB7CB4C, [0x0])
+	ret := (temp - val) / (A_TickCount - timev) * 1000
+	timev := A_TickCount
+	val := temp
+	return ret
+}
+
 setPlayerAttachedObject(slot, modelID, bone, xPos, yPos, zPos, xRot, yRot, zRot, xScale := 1, yScale := 1, zScale := 1, color1 := 0x0, color2 := 0x0) {
 	if (!checkHandles() || !(dwAddress := __DWORD(hGTA, dwSAMP, [SAMP_MISC_INFO_PTR, 0x8])))
 		return false
@@ -1863,6 +1772,10 @@ printRemotePlayerAttachedObjects(playerID) {
 	}
 
 	return true
+}
+
+getPlayerAttachedObject(slot) {
+	return slot < 0 || slot > 10 || !checkHandles() ? false : __DWORD(hGTA, dwSAMP, [SAMP_MISC_INFO_PTR, 0x8, 0x74 + slot * 0x34])
 }
 
 getPlayerAttachedObjects() {
@@ -2030,74 +1943,39 @@ printGangzones() {
 	return true
 }
 
-checkLyDTextDraws() {
+getPlayerTextDrawByIndex(index) {
 	if (!checkHandles())
-		return false
+		return ""
 
-	dwSAMPTextDraws := __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_TEXTDRAW])
-	; // Player 0 Label (Status, Wantedlevels)
-	dwAddress := __DWORD(hGTA, dwSAMPTextDraws, [0x4400])
-	if (__READMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_FONT], "UInt") == 3)
-		return false
+	dwTextDraws := __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_TEXTDRAW])
+	if (!dwTextDraws)
+		return ""
 
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_FONT], 3, "UInt")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_LETTERWIDTH], 0.28, "Float")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_LETTERHEIGHT], 1.0, "Float")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_XPOS], 15.0, "Float")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_YPOS], 315.0, "Float")
+	if (!__DWORD(hGTA, dwTextDraws, [index * 4 + SAMP_MAX_TEXTDRAWS * 4]))
+		return ""
 
-	; // Player 20 Label (Payday)
-	dwAddress := __DWORD(hGTA, dwSAMPTextDraws, [0x4450])
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_FONT], 3, "UInt")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_LETTERWIDTH], 0.28, "Float")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_LETTERHEIGHT], 1.0, "Float")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_XPOS], 540.0, "Float")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_YPOS], 12.0, "Float")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_RIGHT], 1, "UChar")
+	if (!(dwAddress := __DWORD(hGTA, dwTextDraws, [index * 4 + (4 * (SAMP_MAX_PLAYERTEXTDRAWS + SAMP_MAX_TEXTDRAWS * 2))])))
+		return ""
 
-	return true
+	return __READSTRING(hGTA, dwAddress, [0x0], 100)
 }
 
-changeLyDTextDraws() {
+setPlayerTextDrawByIndex(index, text) {
 	if (!checkHandles())
 		return false
 
-	dwSAMPTextDraws := __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_TEXTDRAW])
-	; // Player 0 Label (Status, Wantedlevels)
-	dwAddress := __DWORD(hGTA, dwSAMPTextDraws, [0x4400])
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_FONT], 3, "UInt")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_LETTERWIDTH], 0.28, "Float")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_LETTERHEIGHT], 1.0, "Float")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_XPOS], 15.0, "Float")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_YPOS], 315.0, "Float")
+	dwTextDraws := __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_TEXTDRAW])
 
-	; // Player 20 Label (Payday)
-	dwAddress := __DWORD(hGTA, dwSAMPTextDraws, [0x4450])
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_FONT], 3, "UInt")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_LETTERWIDTH], 0.28, "Float")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_LETTERHEIGHT], 1.0, "Float")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_XPOS], 540.0, "Float")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_YPOS], 12.0, "Float")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_RIGHT], 1, "UChar")
+	if (!dwTextDraws)
+		return false
 
-	; // Global 10 Label (Forum)
-	dwAddress := __DWORD(hGTA, dwSAMPTextDraws, [0x2428])
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_FONT], 3, "UInt")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_LETTERWIDTH], 0.28, "Float")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_LETTERHEIGHT], 1.0, "Float")
-	__WRITEMEM(hGTA, dwAddress, [SAMP_TEXTDRAW_XPOS], 15.0, "Float")
+	if (!__DWORD(hGTA, dwTextDraws, [index * 4 + SAMP_MAX_TEXTDRAWS * 4]))
+		return false
 
-	setHUDValue("RadarX", 15.0)
-	setHUDValue("ArmorColor", 11)
-	setHUDValue("BreathColor", 14)
-	__WRITEMEM(hGTA, 0xBAB22C, [4 * 0], 0xFF1F1FE0, "UInt")
-	__WRITEMEM(hGTA, 0xBAB22C, [4 * 1], 0xFF009933, "UInt")
-	__WRITEMEM(hGTA, 0xBAB22C, [4 * 2], 0xFFFF901E, "UInt")
-	__WRITEMEM(hGTA, 0xBAB22C, [4 * 4], 0xFFFFFFFF, "UInt")
-	__WRITEMEM(hGTA, 0xBAB22C, [4 * 6], 0xFF00D7FF, "UInt")
-	__WRITEMEM(hGTA, 0xBAB22C, [4 * 11], 0xFF00D7FF, "UInt")
+	if (!(dwAddress := __DWORD(hGTA, dwTextDraws, [index * 4 + (4 * (SAMP_MAX_PLAYERTEXTDRAWS + SAMP_MAX_TEXTDRAWS * 2))])))
+		return false
 
-	return true
+	return __WRITESTRING(hGTA, dwAddress, [0x0], text)
 }
 
 updateTextDraws() {
@@ -2110,7 +1988,7 @@ updateTextDraws() {
 	oTextDraws := []
 	if (!(dwTextDraws := __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_TEXTDRAW])))
 		return false
-
+		
 	Loop, % SAMP_MAX_TEXTDRAWS {
 		if (!__DWORD(hGTA, dwTextDraws, [(A_Index - 1) * 4]) || !(dwAddress := __DWORD(hGTA, dwTextDraws, [(A_Index - 1) * 4 + (4 * (SAMP_MAX_PLAYERTEXTDRAWS + SAMP_MAX_TEXTDRAWS))])))
 			continue
@@ -2178,7 +2056,6 @@ deleteTextDraw(ByRef textDrawID) {
 		return -1
 	}
 
-	AddChatMessage("Could not be deleted: " textDrawID)
 	return textDrawID
 }
 
@@ -2222,12 +2099,59 @@ createTextDraw(text, xPos, yPos, letterColor := 0xFFFFFFFF, font := 3, letterWid
 	return -1
 }
 
+createTextDraw1(text, xPos, yPos, letterColor := 0xFFFFFFFF, font := 3, letterWidth := 0.4, letterHeight := 1, shadowSize := 0, outline := 1
+	, shadowColor := 0xFF000000, box := 0, boxColor := 0xFFFFFFFF, boxSizeX := 0.0, boxSizeY := 0.0, left := 0, right := 0, center := 1
+	, proportional := 1, modelID := 0, xRot := 0.0, yRot := 0.0, zRot := 0.0, zoom := 1.0, color1 := 0xFFFF, color2 := 0xFFFF) {
+
+	if (font > 5 || StrLen(text) > 800 || !checkHandles() || !(dwAddress := __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_TEXTDRAW])))
+		return -1
+
+	Loop, 2048 {
+		i := A_Index - 1
+		if (__DWORD(hGTA, dwAddress, [i * 4]))
+			continue
+
+		VarSetCapacity(struct, 63, 0)
+		NumPut((box ? 1 : 0) + (left ? 2 : 0) + (right ? 4 : 0) + (center ? 8 : 0) + (proportional ? 16 : 0), &struct, 0, "UChar")
+		NumPut(letterWidth, &struct, 1, "Float")
+		NumPut(letterHeight, &struct, 5, "Float")
+		NumPut(letterColor, &struct, 9, "UInt")
+		NumPut(boxSizeX, &struct, 0xD, "Float")
+		NumPut(boxSizeY, &struct, 0x11, "Float")
+		NumPut(boxColor, &struct, 0x15, "UInt")
+		NumPut(shadowSize, &struct, 0x19, "UChar")
+		NumPut(outline, &struct, 0x1A, "UChar")
+		NumPut(shadowColor, &struct, 0x1B, "UInt")
+		NumPut(font, &struct, 0x1F, "UChar")
+		NumPut(1, &struct, 0x20, "UChar")
+		NumPut(xPos, &struct, 0x21, "Float")
+		NumPut(yPos, &struct, 0x25, "Float")
+		NumPut(modelID, &struct, 0x29, "Short")
+		NumPut(xRot, &struct, 0x2B, "Float")
+		NumPut(yRot, &struct, 0x2F, "Float")
+		NumPut(zRot, &struct, 0x33, "Float")
+		NumPut(zoom, &struct, 0x37, "Float")
+		NumPut(color1, &struct, 0x3B, "Short")
+		NumPut(color2, &struct, 0x3D, "Short")
+		return !__WRITERAW(hGTA, pMemory + 1024, &struct, 63) ? -1 : __CALL(hGTA, dwSAMP + 0x1AE20, [["i", dwAddress], ["i", i], ["i", pMemory + 1024], ["s", text]], false, true) ? i : -1
+	}
+
+	return -1
+}
+
 getTextDrawPos(textDrawID) {
 	return textDrawID < 0 || textDrawID > 2047 || !checkHandles() ? "" : [__READMEM(hGTA, (dwAddress := __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_TEXTDRAW, textDrawID * 4 + 4 * (SAMP_MAX_PLAYERTEXTDRAWS + SAMP_MAX_TEXTDRAWS)])), [0x98B], "Float"), __READMEM(hGTA, dwAddress, [0x98F], "Float")]
 }
 
 moveTextDraw(textDrawID, xPos, yPos) {
 	return textDrawID < 0 || textDrawID > 2047 || checkHandles() && __WRITEMEM(hGTA, (dwAddress := __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_TEXTDRAW, textDrawID * 4 + 4 * (SAMP_MAX_PLAYERTEXTDRAWS + SAMP_MAX_TEXTDRAWS)])), [0x98B], xPos, "Float") && __WRITEMEM(hGTA, dwAddress, [0x98F], yPos, "Float")
+}
+
+resizeTextDraw(textDrawID, letterWidth, letterHeight) {
+	return return textDrawID < 0 || textDrawID > 2047 || checkHandles() 
+		&& __WRITEMEM(hGTA, (dwAddress := __DWORD(hGTA, dwSAMP
+		, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_TEXTDRAW, textDrawID * 4 + 4 * (SAMP_MAX_PLAYERTEXTDRAWS + SAMP_MAX_TEXTDRAWS)])), [0x963], letterWidth
+		, "Float") && __WRITEMEM(hGTA, dwAddress, [0x967], letterHeight, "Float")
 }
 
 updateTextDraw(textDrawID, text) {
@@ -2301,6 +2225,24 @@ editObject(objectID) {
 	return __CALL(hGTA, dwSAMP + 0x6DE40, [["i", __DWORD(hGTA, dwSAMP, [0x21A0C4])], ["i", objectID], ["i", 1]], false, true)
 }
 
+getClosestObject() {
+	if (!updateObjects())
+		return ""
+
+	dist := -1
+	obj := ""
+	pPos := getPlayerPos()
+
+	for i, o in oObjects {
+		if ((newDist := getDistance([o.XPOS, o.YPOS, o.ZPOS], pPos)) < dist || dist == -1) {
+			obj := o
+			dist := newDist
+		}
+	}
+
+	return obj
+}
+
 editAttachedObject(slot) {
 	return __CALL(hGTA, dwSAMP + 0x6DF00, [["i", __DWORD(hGTA, dwSAMP, [0x21A0C4])], ["i", slot]], false, true)
 }
@@ -2350,6 +2292,51 @@ getClosestObjectByModel(modelID) {
 	return obj
 }
 
+setClosestObjectDrawDistance(ddistance) {
+	if (!updateObjects())
+		return ""
+
+	dist := -1
+	obj := ""
+	pPos := getPlayerPos()
+
+	for i, o in oObjects {
+		if ((newDist := getDistance([o.XPOS, o.YPOS, o.ZPOS], pPos)) < dist || dist == -1) {
+			obj := o
+			dist := newDist
+		}
+	}
+
+	if (obj == "")
+		return false
+
+	dwAddress := __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_OBJECT])
+	dwObject := __DWORD(hGTA, dwAddress, [obj.ID * 0x4 + 0xFA4])
+
+	return __WRITEMEM(hGTA, dwObject, [0x54], ddistance, "Float")
+}
+
+getClosestObjectDrawDistance() {
+	if (!updateObjects())
+		return ""
+
+	dist := -1
+	obj := ""
+	pPos := getPlayerPos()
+
+	for i, o in oObjects {
+		if ((newDist := getDistance([o.XPOS, o.YPOS, o.ZPOS], pPos)) < dist || dist == -1) {
+			obj := o
+			dist := newDist
+		}
+	}
+
+	dwAddress := __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_OBJECT])
+	dwObject := __DWORD(hGTA, dwAddress, [obj.ID * 0x4 + 0xFA4])
+
+	return __READMEM(hGTA, dwObject, [0x54], "Float")
+}
+
 getClosestObjectModel() {
 	if (!updateObjects())
 		return ""
@@ -2373,7 +2360,7 @@ printObjects() {
 		return false
 
 	for i, o in oObjects
-		AddChatMessage("Index: " o.ID ", Model: " o.MODELID ", xPos: " o.XPOS ", yPos: " o.YPOS ", zPos: " o.ZPOS)
+		AddChatMessage("Index: " o.ID ", Model: " o.MODELID ", xPos: " o.XPOS ", yPos: " o.YPOS ", zPos: " o.ZPOS ", " o.DRAW)
 
 	AddChatMessage("Object Count: " i)
 
@@ -2395,6 +2382,69 @@ printObjectsByModelID(modelID) {
 	AddChatMessage("Object Count: " count)
 
 	return true
+}
+
+countAttachedObjects(modelID) {
+	if (!checkHandles())
+		return false
+
+	vehPtr := __DWORD(hGTA, GTA_VEHICLE_PTR, [0x0])
+	if (vehPtr == "" || !vehPtr)
+		return false
+
+	dwAddress := __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_OBJECT])
+	if (!dwAddress)
+		return false
+	
+	oCount := 0
+	count := __DWORD(hGTA, dwAddress, [0x0])
+	Loop, % SAMP_MAX_OBJECTS {
+		i := A_Index - 1
+		
+		if (!__DWORD(hGTA, dwAddress, [i * 4 + 0x4]))
+			continue
+
+		dwObject := __DWORD(hGTA, dwAddress, [i * 0x4 + 0xFA4])
+		if (__DWORD(hGTA, dwObject, [0x4E]) == modelID && __DWORD(hGTA, dwObject, [0x40, 0xFC]) == vehPtr)
+			oCount++
+
+		count--
+		if (count <= 0)
+			break
+	}
+
+	return oCount
+}
+
+isObjectAttached() {
+	if (!checkHandles())
+		return false
+
+	vehPtr := __DWORD(hGTA, GTA_VEHICLE_PTR, [0x0])
+	if (vehPtr == "" || !vehPtr)
+		return false
+
+	dwAddress := __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_OBJECT])
+	if (!dwAddress)
+		return false
+		
+	count := __DWORD(hGTA, dwAddress, [0x0])
+	Loop, % SAMP_MAX_OBJECTS {
+		i := A_Index - 1
+		
+		if (!__DWORD(hGTA, dwAddress, [i * 4 + 0x4]))
+			continue
+
+		dwObject := __DWORD(hGTA, dwAddress, [i * 0x4 + 0xFA4])
+		if (__DWORD(hGTA, dwObject, [0x40, 0xFC]) == vehPtr)
+			AddChatMessage("Object Model: " __DWORD(hGTA, dwObject, [0x4E]))
+
+		count--
+		if (count <= 0)
+			break
+	}
+
+	return false
 }
 
 isSirenAttached() {
@@ -2674,6 +2724,23 @@ updatePickups() {
 	return true
 }
 
+getObjectCount() {
+	return !checkHandles() ? false : __DWORD(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_OBJECT, 0x0])
+}
+
+getObjectCountByModel(modelID) {
+	if (!updateObjects())
+		return false
+
+	count := 0
+	for i, o in oObjects {
+		if (o.MODELID == modelID)
+			count++
+	}
+
+	return count
+}
+
 updateObjects() {
 	if (!checkHandles())
 		return false
@@ -2698,7 +2765,7 @@ updateObjects() {
 
 		dwObject := __DWORD(hGTA, dwAddress, [i * 0x4 + 0xFA4])
 		oObjects.Push(Object("ID", i, "MODELID", __DWORD(hGTA, dwObject, [0x4E]), "XPOS", __READMEM(hGTA, dwObject, [0x5C], "Float"), "YPOS"
-			, __READMEM(hGTA, dwObject, [0x60], "Float"), "ZPOS", __READMEM(hGTA, dwObject, [0x64], "Float")))
+			, __READMEM(hGTA, dwObject, [0x60], "Float"), "ZPOS", __READMEM(hGTA, dwObject, [0x64], "Float"), "DRAW", __READMEM(hGTA, dwObject, [0x53], "Float")))
 
 		count--
 		if (count <= 0)
@@ -2708,7 +2775,7 @@ updateObjects() {
 	return true
 }
 
-getChatline(dwIndex) {
+_getChatline(dwIndex) {
 	if (dwIndex < 0 || dwIndex > 99 || !checkHandles())
 		return false
 
@@ -2778,13 +2845,20 @@ updateTextLabels() {
 		if (!dwAddress)
 			continue
 
+		string := __READSTRING(hGTA, dwAddress, [0x0], 256)
+		if (string == "")
+			string := __READSTRING(hGTA, dwAddress, [0x0], getDialogTextSize(dwAddress))
+
+		if (string == "")
+			continue
+
 		fX := __READMEM(hGTA, dwTextLabels, [i * 0x1D + 0x8], "Float")
 		fY := __READMEM(hGTA, dwTextLabels, [i * 0x1D + 0xC], "Float")
 		fZ := __READMEM(hGTA, dwTextLabels, [i * 0x1D + 0x10], "Float")
 		wVehicleID := __READMEM(hGTA, dwTextLabels, [i * 0x1D + 0x1B], "UShort")
 		wPlayerID := __READMEM(hGTA, dwTextLabels, [i * 0x1D + 0x19], "UShort")
 		
-		oTextLabels.Push(Object("ID", i, "TEXT", __READSTRING(hGTA, dwAddress, [0x0], 256), "XPOS", fX, "YPOS", fY, "ZPOS", fZ, "VEHICLEID", wVehicleID, "PLAYERID"
+		oTextLabels.Push(Object("ID", i, "TEXT", string, "XPOS", fX, "YPOS", fY, "ZPOS", fZ, "VEHICLEID", wVehicleID, "PLAYERID"
 			, wPlayerID, "VISIBLE", __READMEM(hGTA, dwTextLabels, [i * 0x1D + 0x18], "UChar"), "DISTANCE", __READMEM(hGTA, dwTextLabels, [i * 0x1D + 0x14], "Float")))
 	}
 
@@ -2844,10 +2918,13 @@ printTextLabels() {
 	if (!updateTextLabels())
 		return false
 
-	for i, o in oTextLabels
-		AddChatMessage("{FFFF00}ID: " o.ID ", Text: " o.TEXT ", " o.XPOS ", " o.YPOS ", " o.ZPOS ", ")
+	for i, o in oTextLabels {
+		AddChatMessage("{FFFF00}ID: " o.ID ", " o.XPOS ", " o.YPOS ", " o.ZPOS ", ")
+		AddChatMessage("Text: " o.TEXT)
+	}
 
 	AddChatMessage("TextLabel Count: " i)
+	renderChat()
 	return true
 }
 
@@ -2895,13 +2972,14 @@ getLabelBySubstring(text := "") {
 	return ""
 }
 
-getNearestLabel2(text := "") {
+getNearestLabel2(text := "", pos1 := "") {
 	if (!updateTextLabels())
 		return 0
 	
 	nearest := ""
 	dist := -1
-	pos1 := getPlayerPos()
+	if (pos1 == "")
+		pos1 := getPlayerPos()
 
 	for i, o in oTextLabels {
 		if (text != "" && !InStr(o.TEXT, text))
@@ -2926,7 +3004,7 @@ getNearestLabel(text := "") {
 	pos1 := getPlayerPos()
 
 	for i, o in oTextLabels {
-		if (text != "" && o.TEXT != text)
+		if (text != "" && !InStr(o.TEXT, text))
 			continue
 
 		newDist := getDistance(pos1, [o.XPOS, o.YPOS, o.ZPOS])
@@ -2987,6 +3065,13 @@ createBlip(dwIcon, fX, fY) {
 	return dwReturn
 }
 
+clearBlip2(blipID) {
+	if (!checkHandles() || !blipID)
+		return false
+
+	return __CALL(hGTA, 0x587C10, [["i", blipID]])
+}
+
 clearBlip(dwBlip) {
 	if (!checkHandles() || !dwBlip)
 		return false
@@ -3012,6 +3097,19 @@ getBlipPosByIconID(iconID) {
 	return Object("ID", -1)
 }
 
+clearAllBlips() {
+	if (!checkHandles())
+		return false
+
+	Loop % GTA_BLIP_COUNT {
+		currentElement := GTA_BLIP_POOL + (A_Index - 1) * GTA_BLIP_ELEMENT_SIZE
+		if (__READMEM(hGTA, currentElement + GTA_BLIP_ID_OFFSET, [0x0], "UChar") != 0)
+			clearBlip2(A_Index - 1)
+	}
+
+	return true
+}
+
 printMapIcons() {
 	if (!checkHandles())
 		return false
@@ -3027,7 +3125,7 @@ printMapIcons() {
 		color := intToHex(__READMEM(hGTA, currentElement + GTA_BLIP_COLOR_OFFSET, [0x0], "UInt"))
 
 		if (id != 0)
-			AddChatMessage("Icon ID: " id ", Style: " style ", Pos: " xPos " " yPos " " zPos ", Color: " color)
+			AddChatMessage("Icon ID: " id ", Style: " style ", Pos: " xPos " " yPos " " zPos ", ID: " A_Index - 1)
 	}
 
 	return true
@@ -3047,6 +3145,10 @@ getVehicleLockState(vehicleID) {
 
 getVehicleEngineState(vehicleID) {
 	return !checkHandles() || vehicleID < 1 || vehicleID > SAMP_MAX_VEHICLES ? "" : __READMEM(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_VEHICLE, 0x4FB4 + vehicleID * 0x4, 0x428], "UShort") & 16 ? true : false
+}
+
+setVehicleColorSAMP(vehicleID, color, colorID := 1) {
+	return !checkHandles() || vehicleID < 1 || vehicleID > SAMP_MAX_VEHICLES ? "" : __WRITEMEM(hGTA, dwSAMP, [SAMP_INFO_PTR, SAMP_POOLS, SAMP_POOL_VEHICLE, 0x1134 + vehicleID * 0x4, (colorID == 1 ? 0x79 : 0x7A)], color, "UChar")
 }
 
 getVehicleLightState(vehicleID) {
@@ -3174,7 +3276,7 @@ getVehiclePassengers(vehicleID) {
 	return passengers
 }
 
-getMyVehiclePassengers() {
+getPlayerVehiclePassengers() {
 	if (!checkHandles() || !updatePlayers())
 		return ""
 
@@ -3305,10 +3407,6 @@ getSkinID(dwID) {
 	return skin
 }
 
-setPlayerSkin(skinID) {
-	return checkHandles() && __CALL(hGTA, dwSAMP + 0x9A590, [["i", __DWORD(hGTA, dwSAMP, [SAMP_MISC_INFO_PTR, 0x8])], ["i", skinID]], false, true)
-}
-
 getPlayerPos() {
 	return !checkHandles() ? "" : [__READMEM(hGTA, 0xB6F2E4, [0x0], "Float"), __READMEM(hGTA, 0xB6F2E8, [0x0], "Float"), __READMEM(hGTA, 0xB6F2EC, [0x0], "Float")]
 }
@@ -3410,7 +3508,7 @@ playAudioEvent(eventID) {
 }
 
 addDelimiters(value, delimiter := ".") {
-	return RegExReplace(Round(value), "\G\d+?(?=(\d{3})+(?:\D|$))", "$0" delimiter)
+	return RegExReplace(Round(value), "\G-?\d+?(?=(\d{3})+(?:\D|$))", "$0" delimiter)
 }
 
 ; // ###### MEMORY FUNCTIONS ######
@@ -3443,12 +3541,24 @@ refreshGTA() {
 }
 
 refreshSAMP() {
-	return dwSAMP ? true : (dwSAMP := getModuleBaseAddress("samp.dll", hGTA))
+	if (dwSAMP)
+		return true
+
+	dwSAMP := getModuleBaseAddress("samp.dll", hGTA)
+	if (!dwSAMP)
+		return false
+
+	if (__READMEM(hGTA, dwSAMP, [0x1036], "UChar") != 0xD8) {
+		msgbox, 64, % "SA:MP Version nicht kompatibel", % "Die installierte SA:MP Version ist nicht mit dem Keybinder kompatibel.`nBitte installiere die Version 0.3.7 um den Keybinder nutzen zu können."
+		ExitApp
+	}
+
+	return true
 }
 
 refreshMemory() {
 	if (!pMemory) {
-		pMemory := virtualAllocEx(hGTA, 6384, 0x1000 | 0x2000, 0x40)
+		pMemory := virtualAllocEx(hGTA, 6984, 0x1000 | 0x2000, 0x40)
 		if (ErrorLevel) {
 			pMemory := 0x0
 			return false
@@ -3459,20 +3569,6 @@ refreshMemory() {
 	}
 
 	return true
-}
-
-queryPerformance() {
-    Static QPCLAST, QPCNOW, QPCFREQ 
-
-    if not QPCFREQ 
-        if not DllCall("QueryPerformanceFrequency", "Int64 *", QPCFREQ) 
-            return "Fail QPF" 
-
-    QPCLAST=%QPCNOW% 
-    if not DllCall("QueryPerformanceCounter", "Int64 *", QPCNOW) 
-        return "Fail QPC" 
-
-    return (QPCNOW-QPCLAST)/QPCFREQ 
 }
 
 getTownNumber() {
@@ -3576,6 +3672,11 @@ aInterface["RadarWidth"]		:= Object("ADDRESSES", [0x5834C2, 0x58A449, 0x58A7E9, 
 
 aInterface["RadarScaleWidth"]	:= Object("ADDRESSES", [0x5834EE, 0x58A475, 0x58A602, 0x58A706, 0x58A7BB, 0x58A85C, 0x58A90B, 0x58A9BF], "DEFAULT_POINTER", 0x859524, "DEFAULT_VALUE", 0.002232143, "VALUE_TYPE", "Float", "DETOUR_ADDRESS", null)
 aInterface["RadarScaleHeight"]	:= Object("ADDRESSES", [0x5834BC, 0x58A443, 0x58A5DA, 0x58A6E0, 0x58A793, 0x58A830, 0x58A8E1, 0x58A984], "DEFAULT_POINTER", 0x859520, "DEFAULT_VALUE", 0.0015625, "VALUE_TYPE", "Float", "DETOUR_ADDRESS", null)
+
+aInterface["Radar-Tilt-XPos"] 	:= Object("ADDRESSES", [0x58A469], "DEFAULT_POINTER", 0x858A10, "DEFAULT_VALUE", 40.0, "VALUE_TYPE", "Float", "DETOUR_ADDRESS", null)
+aInterface["Radar-Tilt-YPos"] 	:= Object("ADDRESSES", [0x58A499], "DEFAULT_POINTER", 0x866B70, "DEFAULT_VALUE", 104.0, "VALUE_TYPE", "Float", "DETOUR_ADDRESS", null)
+aInterface["Radar-Height-XPos"] := Object("ADDRESSES", [0x58A5E2, 0x58A6E6], "DEFAULT_POINTER", 0x858A10, "DEFAULT_VALUE", 40.0, "VALUE_TYPE", "Float", "DETOUR_ADDRESS", null)
+aInterface["Radar-Height-YPos"] := Object("ADDRESSES", [0x58A60E, 0x58A71E], "DEFAULT_POINTER", 0x866B70, "DEFAULT_VALUE", 104.0, "VALUE_TYPE", "Float", "DETOUR_ADDRESS", null)
 
 setHUDValue(sName, value) {
 	if (!aInterface.HasKey(sName) || !checkHandles())
